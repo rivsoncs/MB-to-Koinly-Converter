@@ -28,7 +28,7 @@ pip3 install pandas
 
 ```
 📁 Projeto/
- ├── 📄 mb_csv_to_koinly.py        (Script principal de conversão)
+ ├── 📄 mb_to_koinly.py            (Script principal de conversão)
  ├── 📄 extrato_mercadobitcoin.csv (Arquivo CSV original do Mercado Bitcoin)
  └── 📄 koinly_output.csv          (Arquivo CSV gerado para o Koinly)
 ```
@@ -37,7 +37,7 @@ pip3 install pandas
 
 ### **3. Código do Script**
 
-Salve o código abaixo em um arquivo chamado `mb_csv_to_koinly.py` (ou outro nome que preferir):
+Salve o código abaixo em um arquivo chamado `mb_to_koinly.py` (ou outro nome que preferir):
 
 ```python
 import pandas as pd
@@ -283,13 +283,13 @@ if __name__ == "__main__":
 No terminal ou prompt de comando, vá até a pasta onde o script está salvo e rode:
 
 ```bash
-python mb_csv_to_koinly.py
+python mb_to_koinly.py
 ```
 
 ou
 
 ```bash
-python3 mb_csv_to_koinly.py
+python3 mb_to_koinly.py
 ```
 
 Isso vai ler o arquivo chamado **`extrato_mercadobitcoin.csv`** (que deve estar na mesma pasta) e gerar um arquivo **`koinly_output.csv`** no mesmo diretório.
