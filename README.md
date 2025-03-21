@@ -41,9 +41,10 @@ Salve o código abaixo em um arquivo chamado `mb_to_koinly.py` (ou outro nome qu
 
 ```python
 import pandas as pd
-from datetime import datetime
 import csv
+from datetime import datetime
 
+# Possíveis formatos de data a serem testados
 POSSIBLE_DATE_FORMATS = [
     "%Y-%m-%d %H:%M:%S.%f",  # Ex.: 2024-01-17 09:47:30.536247
     "%Y-%m-%d %H:%M:%S",     # Ex.: 2024-01-17 09:47:30
@@ -51,55 +52,54 @@ POSSIBLE_DATE_FORMATS = [
     "%d/%m/%Y %H:%M:%S",     # Ex.: 29/10/2024 08:38:24
 ]
 
+# Categorias que já estão mapeadas
+CATEGORIAS_MAPEADAS = {"Execução de ordem", "Depósito", "Saque/Retirada", "Taxa de Saque/Retirada"}
+
 def detect_datetime_format(date_str):
-    """Testa cada formato de POSSIBLE_DATE_FORMATS e retorna o primeiro que encaixar."""
+    """Testa cada formato em POSSIBLE_DATE_FORMATS e retorna o primeiro que encaixar."""
     for fmt in POSSIBLE_DATE_FORMATS:
         try:
             datetime.strptime(date_str, fmt)
             return fmt
         except ValueError:
-            pass
+            continue
     return None
 
 def auto_detect_format_for_series(series, sample_size=5):
-    """Tenta detectar o formato de data/hora para as primeiras 'sample_size' linhas não-nulas da coluna."""
+    """Tenta detectar o formato de data para as primeiras 'sample_size' linhas não-nulas."""
     sample = series.dropna().head(sample_size)
     if len(sample) == 0:
         return None
-
     scores = {}
     for val in sample:
-        possible = detect_datetime_format(str(val))
-        if possible:
-            scores[possible] = scores.get(possible, 0) + 1
-    
+        fmt = detect_datetime_format(str(val))
+        if fmt:
+            scores[fmt] = scores.get(fmt, 0) + 1
     if not scores:
         return None
-    # Retorna o formato com maior pontuação
     best_fmt = max(scores, key=scores.get)
     return best_fmt
 
 def convert_mb_csv_to_sent_received(input_csv, output_csv):
     """
-    Script para converter extrato da Mercado Bitcoin no layout:
+    Converte o extrato da Mercado Bitcoin para o layout Koinly com as colunas:
     
-    Date,Sent Amount,Sent Currency,Received Amount,Received Currency,
-    Fee Amount,Fee Currency,Net Worth Amount,Net Worth Currency,
-    Label,Description,TxHash
+      Date,Sent Amount,Sent Currency,Received Amount,Received Currency,
+      Fee Amount,Fee Currency,Net Worth Amount,Net Worth Currency,Label,Description,TxHash
 
-    Lógicas de mapeamento:
-      - 'Depósito' => Received (Deposit).
-      - 'Saque/Retirada' => Sent (Withdrawal).
-      - 'Execução de ordem' => agrupar 2 linhas (uma <0, outra >0) => (Sent, Received).
-      - Demais categorias (Cancelamento, Criação etc.) => ignoradas.
-
-    Usa parse de datas com auto-detecção do formato. 
+    Mapeamento:
+      - "Depósito": transação com Received Amount preenchido.
+      - "Saque/Retirada": transação com Sent Amount preenchido; se houver
+          linha "Taxa de Saque/Retirada" com timestamp e moeda próximos, associa como Fee.
+      - "Execução de ordem": agrupa duas linhas (uma com quantidade < 0 e outra > 0,
+          com diferença de tempo < 2 segundos) para formar uma transação (Sent vs. Received).
+      - Outras categorias são ignoradas, mas suas linhas são listadas no terminal.
     """
-
+    # Ler as primeiras linhas para identificar o cabeçalho
     df_head = pd.read_csv(input_csv, nrows=10, encoding='utf-8')
     original_cols = df_head.columns.tolist()
 
-    # Renomear se vier em minúsculas
+    # Se o cabeçalho vier em minúsculas, renomear para a forma padrão
     rename_map = {}
     if "data" in original_cols:
         rename_map["data"] = "Data"
@@ -112,46 +112,57 @@ def convert_mb_csv_to_sent_received(input_csv, output_csv):
     if "saldo" in original_cols:
         rename_map["saldo"] = "Saldo"
 
-    # Ler CSV completo
+    # Ler o CSV completo
     df = pd.read_csv(input_csv, encoding='utf-8')
     df.rename(columns=rename_map, inplace=True)
 
-    required = ["Data","Categoria","Moeda","Quantidade","Saldo"]
-    for col in required:
+    # Verificar colunas obrigatórias
+    required_cols = ["Data", "Categoria", "Moeda", "Quantidade", "Saldo"]
+    for col in required_cols:
         if col not in df.columns:
-            raise ValueError(f"Coluna '{col}' não encontrada. Colunas: {df.columns.tolist()}")
+            raise ValueError(f"Coluna '{col}' não encontrada. Colunas lidas: {df.columns.tolist()}")
 
-    # Auto-detectar formato de data
+    # Auto-detecção do formato de data
     dt_fmt = auto_detect_format_for_series(df["Data"], sample_size=5)
     if not dt_fmt:
-        dt_fmt = "%Y-%m-%d %H:%M:%S"
-        print(f"[Aviso] Não detectei formato. Usando fallback: {dt_fmt}")
+        dt_fmt = "%Y-%m-%d %H:%M:%S"  # fallback
+        print(f"[Aviso] Formato de data não detectado; usando fallback: {dt_fmt}")
 
-    # Converter a data para datetime
+    # Converter a coluna "Data" para datetime
     df["Data"] = pd.to_datetime(df["Data"], format=dt_fmt, errors="coerce")
-    invalid_count = df["Data"].isna().sum()
-    if invalid_count>0:
-        print(f"[AVISO] {invalid_count} linha(s) com Data inválida(s). Removidas.")
+    invalid_dates = df["Data"].isna().sum()
+    if invalid_dates > 0:
+        print(f"[AVISO] {invalid_dates} linha(s) com data inválida foram removidas.")
         df = df.dropna(subset=["Data"])
 
     df.sort_values("Data", inplace=True)
     df.reset_index(drop=True, inplace=True)
 
-    # Montar lista final
+    # Listar linhas com categorias não mapeadas para revisão
+    df_unknown = df[~df["Categoria"].isin(CATEGORIAS_MAPEADAS)]
+    if not df_unknown.empty:
+        print(f"[INFO] Linhas com categorias não mapeadas ({len(df_unknown)}):")
+        print(df_unknown[["Data", "Categoria", "Moeda", "Quantidade", "Saldo"]].to_string(index=False))
+
+    # Criar um dicionário para associar taxas de saque: chave = (Data, Moeda), valor = taxa acumulada
+    fee_map = {}
+    df_fee = df[df["Categoria"] == "Taxa de Saque/Retirada"].copy()
+    for idx, row in df_fee.iterrows():
+        tstamp = row["Data"]
+        coin = row["Moeda"]
+        fee_val = float(row["Quantidade"])
+        fee_map.setdefault((tstamp, coin), 0.0)
+        fee_map[(tstamp, coin)] += fee_val
+
     koinly_rows = []
 
-    # Filtrar
-    df_exec = df[df["Categoria"] == "Execução de ordem"].copy()
+    # Processar Depósitos: mapeia para Received
     df_dep = df[df["Categoria"] == "Depósito"].copy()
-    df_wd = df[df["Categoria"] == "Saque/Retirada"].copy()
-
-    # 1) Depósitos => Received
     for idx, row in df_dep.iterrows():
         ts = row["Data"]
         coin = row["Moeda"]
         qty = abs(float(row["Quantidade"]))
         date_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
-
         rec = {
             "Date": date_str,
             "Sent Amount": "",
@@ -168,46 +179,53 @@ def convert_mb_csv_to_sent_received(input_csv, output_csv):
         }
         koinly_rows.append(rec)
 
-    # 2) Saque/Retirada => Sent
+    # Processar Saques/Retiradas: mapeia para Sent; associa taxa se encontrada
+    df_wd = df[df["Categoria"] == "Saque/Retirada"].copy()
     for idx, row in df_wd.iterrows():
         ts = row["Data"]
         coin = row["Moeda"]
         qty = abs(float(row["Quantidade"]))
         date_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
-
-        rec = {
+        fee_val = ""
+        fee_currency = ""
+        # Procurar uma taxa associada: chave exata ou com diferença inferior a 2 segundos
+        for (t_fee, coin_fee), fee in fee_map.items():
+            if coin_fee == coin and abs((t_fee - ts).total_seconds()) < 2.0:
+                fee_val = fee
+                fee_currency = coin
+                break
+        wd_line = {
             "Date": date_str,
             "Sent Amount": qty,
             "Sent Currency": coin,
             "Received Amount": "",
             "Received Currency": "",
-            "Fee Amount": "",
-            "Fee Currency": "",
+            "Fee Amount": fee_val,
+            "Fee Currency": fee_currency,
             "Net Worth Amount": "",
             "Net Worth Currency": "",
             "Label": "",
             "Description": "Saque/Retirada - Mercado Bitcoin",
             "TxHash": ""
         }
-        koinly_rows.append(rec)
+        koinly_rows.append(wd_line)
 
-    # 3) Execução de ordem => pares (quantidade<0, quantidade>0)
+    # Processar Execução de ordem: agrupar pares (uma linha com quantidade < 0 e outra com > 0)
+    df_exec = df[df["Categoria"] == "Execução de ordem"].copy()
     df_exec.reset_index(drop=True, inplace=True)
     used_idx = set()
     n = len(df_exec)
     i = 0
-
-    while i<n:
+    while i < n:
         if i in used_idx:
-            i+=1
+            i += 1
             continue
         row1 = df_exec.iloc[i]
         dt1 = row1["Data"]
         coin1 = row1["Moeda"]
         amt1 = float(row1["Quantidade"])
-
-        found_pair = False
-        for j in range(i+1, n):
+        paired = False
+        for j in range(i + 1, n):
             if j in used_idx:
                 continue
             row2 = df_exec.iloc[j]
@@ -215,19 +233,15 @@ def convert_mb_csv_to_sent_received(input_csv, output_csv):
             coin2 = row2["Moeda"]
             amt2 = float(row2["Quantidade"])
             time_diff = abs((dt2 - dt1).total_seconds())
-
-            if time_diff<2.0 and (amt1*amt2<0):
-                # Achamos par
+            if time_diff < 2.0 and (amt1 * amt2 < 0):
                 date_str = min(dt1, dt2).strftime("%Y-%m-%d %H:%M:%S UTC")
-                
-                if amt1<0:
+                if amt1 < 0:
                     sent_coin, sent_amt = coin1, abs(amt1)
-                    rec_coin, rec_amt = coin2, abs(amt2)
+                    rec_coin, rec_amt   = coin2, abs(amt2)
                 else:
                     sent_coin, sent_amt = coin2, abs(amt2)
-                    rec_coin, rec_amt = coin1, abs(amt1)
-
-                koinly_trade = {
+                    rec_coin, rec_amt   = coin1, abs(amt1)
+                trade_line = {
                     "Date": date_str,
                     "Sent Amount": sent_amt,
                     "Sent Currency": sent_coin,
@@ -241,15 +255,14 @@ def convert_mb_csv_to_sent_received(input_csv, output_csv):
                     "Description": "Execução de ordem - Mercado Bitcoin",
                     "TxHash": ""
                 }
-                koinly_rows.append(koinly_trade)
-
+                koinly_rows.append(trade_line)
                 used_idx.add(i)
                 used_idx.add(j)
-                found_pair = True
+                paired = True
                 break
-        i+=1
+        i += 1
 
-    # Montar DataFrame final no layout “Sent/Received CSV”
+    # Montar DataFrame final com o layout exigido pelo Koinly
     df_koinly = pd.DataFrame(koinly_rows, columns=[
         "Date",
         "Sent Amount",
@@ -269,11 +282,12 @@ def convert_mb_csv_to_sent_received(input_csv, output_csv):
     print(f"Conversão finalizada! Foram geradas {len(df_koinly)} transações.")
     print(f"Arquivo salvo: {output_csv}")
 
-
 if __name__ == "__main__":
-    input_file = "extrato_mercadobitcoin.csv"
-    output_file = "koinly_output.csv"
+    input_file = "extrato_mercadobitcoin.csv"   # Substitua pelo nome do seu extrato
+    output_file = "koinly_output.csv"   # Nome do arquivo de saída
     convert_mb_csv_to_sent_received(input_file, output_file)
+    print("Concluído.")
+
 ```
 
 ---
