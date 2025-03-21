@@ -1,354 +1,157 @@
-# Conversor de Extrato Mercado Bitcoin para Koinly
+# Conversor de Extratos Mercado Bitcoin para Koinly
 
-Este projeto contém um **script em Python** que converte o extrato CSV da **Mercado Bitcoin** para um **CSV** no padrão **Koinly**, facilitando a importação e análise de transações (compras, vendas, depósitos e saques).
+Este repositório contém **dois scripts em Python** que convertem extratos CSV da **Mercado Bitcoin** para um formato compatível com o [Koinly](https://koinly.io/). Dessa forma, você pode importar e analisar facilmente suas transações (compras, vendas, depósitos, saques etc.) no Koinly.
 
 ---
 
-## :rocket: **Como Usar**
+## :sparkles: Índice
 
-### **1. Instale as dependências**
+1. [Descrição Geral](#descrição-geral)
+2. [Requisitos](#requisitos)
+3. [Scripts Disponíveis](#scripts-disponíveis)
+   - [1) mb_to_koinly_legado.py (Extrato Antigo)](#1-mb_to_koinly_legadopy-extrato-antigo)
+   - [2) mb_to_koinly_novo.py (Extrato Novo)](#2-mb_to_koinly_novopy-extrato-novo)
+4. [Como Executar](#como-executar)
+5. [Layout Esperado nos Arquivos](#layout-esperado-nos-arquivos)
+   - [Extrato Antigo (Legado)](#extrato-antigo-legado)
+   - [Extrato Novo](#extrato-novo)
+6. [Observações e Dicas](#observações-e-dicas)
+7. [Licença](#licença)
 
-- Certifique-se de ter o **Python 3** instalado em seu sistema.
+---
 
-- O script utiliza a biblioteca **pandas** para manipular o CSV, então é preciso instalá-la:
+## Descrição Geral
+
+A **Mercado Bitcoin** fornece extratos em CSV com diferentes formatações, dependendo da época ou do tipo de relatório que você seleciona. Aqui temos:
+
+- **Script Legado**: criado para o modelo de extrato onde há colunas como `Data, Categoria, Moeda, Quantidade, Saldo`, e as operações aparecem como “Execução de ordem”, “Depósito”, “Saque/Retirada” etc.
+- **Script Novo**: voltado ao modelo onde cada linha traz `Ativo, Operação Tipo (TRADING-IN, TRADING-OUT, WALLET-IN, WALLET-OUT, CASH-OUT)`, “Preço BRL”, “Liquido BRL”, “Bruto BRL”, etc.
+
+Cada script lê o CSV original e gera um **CSV de saída** no formato **Sent/Received** aceito pelo Koinly, com colunas como:
+
+```
+Date,Sent Amount,Sent Currency,Received Amount,Received Currency,
+Fee Amount,Fee Currency,Net Worth Amount,Net Worth Currency,Label,Description,TxHash
+```
+
+---
+
+## Requisitos
+
+- **Python 3.7+** (ou superior)
+- **pandas**: para manipular o CSV. Instale via:
+  ```bash
+  pip install pandas
+  # ou
+  pip3 install pandas
+  ```
+
+Caso queira personalizar o script (por exemplo, remover debug prints ou mudar rótulos “Trade”, “Withdrawal” etc.), fique à vontade para editar o código.
+
+---
+
+## Scripts Disponíveis
+
+### 1) `mb_to_koinly_legado.py` (Extrato Antigo)
+
+- **Objetivo**: converter o **extrato antigo** do MB, no qual as transações aparecem em linhas com `Categoria` = “Execução de ordem”, “Depósito”, “Saque/Retirada” e, às vezes, “Taxa de Saque/Retirada”.
+- **Cabeçalho esperado** no CSV:
+  ```
+  Data, Categoria, Moeda, Quantidade, Saldo
+  ```
+- **Lógica**:
+  - “Depósito” → preenche `Received` no Koinly  
+  - “Saque/Retirada” → preenche `Sent` no Koinly, associando taxa se houver  
+  - “Execução de ordem” → agrupa duas linhas: uma negativa, outra positiva (quantidade < 0 e > 0) para formar uma única transação de compra/venda.
+
+### 2) `mb_to_koinly_novo.py` (Extrato Novo)
+
+- **Objetivo**: converter o **extrato novo** do MB, no qual cada linha traz `TRADING-IN`, `TRADING-OUT`, `WALLET-IN`, `WALLET-OUT`, “CASH-OUT”, etc.
+- **Cabeçalho esperado** no CSV:
+  ```
+  Ativo,Operação Tipo,Operação Data/Hora,Preço BRL,Liquido BRL,Bruto BRL,Liquido Cripto,Bruto Cripto
+  ```
+- **Lógica**:
+  - `TRADING-OUT` → Venda de cripto (Sent cripto, Received BRL)
+  - `TRADING-IN` → Compra de cripto (Sent BRL, Received cripto)
+  - `WALLET-OUT` → Retirada de cripto (Sent cripto)
+  - `WALLET-IN` → Depósito de cripto (Received cripto)
+  - `CASH-OUT` (com Ativo = BRL) → Saque de fiat (Sent BRL)
+  - Usa colunas “Liquido” e “Bruto” para identificar a taxa (Fee).
+
+Cada script já possui **auto-detecção** do formato de data, conversão de vírgula decimal (`0,69`) para ponto decimal (`0.69`) e similares.
+
+---
+
+## Como Executar
+
+1. **Obtenha o CSV** do Mercado Bitcoin (antigo ou novo).  
+2. Salve-o no mesmo diretório do script correspondente.  
+3. Rode no terminal:
 
 ```bash
-pip install pandas
+python mb_to_koinly_legado.py
 ```
 
 ou
 
 ```bash
-pip3 install pandas
+python mb_to_koinly_novo.py
 ```
+
+Por padrão, cada script lê um arquivo chamado, por exemplo, **`extrato_mercadobitcoin.csv`** e gera um **`koinly_output.csv`**. Se quiser, edite as últimas linhas do script para trocar os nomes de arquivo de entrada/saída.
 
 ---
 
-### **2. Estrutura de Arquivos**
+## Layout Esperado nos Arquivos
+
+### Extrato Antigo (Legado)
+
+Um **exemplo** de cabeçalho e linhas:
 
 ```
-📁 Projeto/
- ├── 📄 mb_to_koinly.py            (Script principal de conversão)
- ├── 📄 extrato_mercadobitcoin.csv (Arquivo CSV original do Mercado Bitcoin)
- └── 📄 koinly_output.csv          (Arquivo CSV gerado para o Koinly)
+Data,Categoria,Moeda,Quantidade,Saldo
+2024-01-10 08:30:24,Execução de ordem,BTC,-0.002,0.520
+2024-01-10 08:30:24,Execução de ordem,BRL,1000,5000
+2024-01-12 10:45:17,Depósito,BRL,2000,7000
+2024-01-13 12:00:55,Saque/Retirada,ETH,0.05,0.100
+2024-01-13 12:00:55,Taxa de Saque/Retirada,ETH,0.001,0.099
 ```
+
+### Extrato Novo
+
+Um **exemplo** de cabeçalho e linhas:
+
+```
+MERCADO BITCOIN SERVIÇOS DIGITAIS LTDA,,,,CPF/CNPJ: 18.213.434/0001-35,,,
+Ativo,Operação Tipo,Operação Data/Hora,Preço BRL,Liquido BRL,Bruto BRL,Liquido Cripto,Bruto Cripto
+REN,TRADING-OUT,20/03/2025 22:32:43,"0,067","14,52967275","14,5515","217,1865672","217,1865672"
+MENGOFT,TRADING-IN,20/03/2025 21:47:24,"0,69","3832,95","3832,95","5535,5575",5555
+XDC,WALLET-OUT,20/03/2025 21:35:49,"0,42","645,253965","645,253965","1536,318964","1536,318964"
+BRL,CASH-OUT,20/03/2025 06:01:14,1,3000,3000,3000,3000
+...
+```
+
+Observando que, às vezes, há linhas extras iniciais (sobre CNPJ, endereço etc.). Os scripts mais novos fazem a **leitura automática** para localizar a linha do cabeçalho verdadeiro.
 
 ---
 
-### **3. Código do Script**
+## Observações e Dicas
 
-Salve o código abaixo em um arquivo chamado `mb_to_koinly.py` (ou outro nome que preferir):
+1. **Importar no Koinly**: depois de gerado o `koinly_output.csv`, vá no Koinly, selecione a exchange ou clique em *Import from file*, e aponte para esse CSV.  
+2. **Formatação**: se você for abrir o CSV final no Excel/LibreOffice e ver colunas desorganizadas, certifique-se de usar `,` (vírgula) como delimitador, pois o Koinly segue o padrão CSV “internacional”.  
+3. **Taxas**: o script “antigo” tenta agrupar taxa de saque coincidindo com a data/hora (dentro de 2 segundos). O script “novo” deduz a taxa da diferença (Bruto – Líquido).  
+4. **Tipos de Moeda**: se o Koinly não reconhecer a ticker “MENGOFT”, por exemplo, você pode precisar renomear ou mapear manualmente, dependendo de como o Koinly rotula o ativo.  
+5. **Fallback numérico**: em versões recentes, o script “novo” possui fallback para lidar com milhar (`1.234,56`) ou valores sem milhar (`1234,56`). Se notar `NaN`, verifique se o CSV difere muito do esperado.  
 
-```python
-import pandas as pd
-import csv
-from datetime import datetime
+---
 
-# Possíveis formatos de data a serem testados
-POSSIBLE_DATE_FORMATS = [
-    "%Y-%m-%d %H:%M:%S.%f",  # Ex.: 2024-01-17 09:47:30.536247
-    "%Y-%m-%d %H:%M:%S",     # Ex.: 2024-01-17 09:47:30
-    "%d/%m/%Y %H:%M:%S.%f",  # Ex.: 29/10/2024 08:38:24.123456
-    "%d/%m/%Y %H:%M:%S",     # Ex.: 29/10/2024 08:38:24
-]
+## Licença
 
-# Categorias que já estão mapeadas
-CATEGORIAS_MAPEADAS = {"Execução de ordem", "Depósito", "Saque/Retirada", "Taxa de Saque/Retirada"}
+Este projeto é disponibilizado “**como está**”, sem garantias. Fique à vontade para **modificar**, **abrir Issues** ou enviar PRs com melhorias. 
 
-def detect_datetime_format(date_str):
-    """Testa cada formato em POSSIBLE_DATE_FORMATS e retorna o primeiro que encaixar."""
-    for fmt in POSSIBLE_DATE_FORMATS:
-        try:
-            datetime.strptime(date_str, fmt)
-            return fmt
-        except ValueError:
-            continue
-    return None
+---
 
-def auto_detect_format_for_series(series, sample_size=5):
-    """Tenta detectar o formato de data para as primeiras 'sample_size' linhas não-nulas."""
-    sample = series.dropna().head(sample_size)
-    if len(sample) == 0:
-        return None
-    scores = {}
-    for val in sample:
-        fmt = detect_datetime_format(str(val))
-        if fmt:
-            scores[fmt] = scores.get(fmt, 0) + 1
-    if not scores:
-        return None
-    best_fmt = max(scores, key=scores.get)
-    return best_fmt
 
-def convert_mb_csv_to_sent_received(input_csv, output_csv):
-    """
-    Converte o extrato da Mercado Bitcoin para o layout Koinly com as colunas:
-    
-      Date,Sent Amount,Sent Currency,Received Amount,Received Currency,
-      Fee Amount,Fee Currency,Net Worth Amount,Net Worth Currency,Label,Description,TxHash
-
-    Mapeamento:
-      - "Depósito": transação com Received Amount preenchido.
-      - "Saque/Retirada": transação com Sent Amount preenchido; se houver
-          linha "Taxa de Saque/Retirada" com timestamp e moeda próximos, associa como Fee.
-      - "Execução de ordem": agrupa duas linhas (uma com quantidade < 0 e outra > 0,
-          com diferença de tempo < 2 segundos) para formar uma transação (Sent vs. Received).
-      - Outras categorias são ignoradas, mas suas linhas são listadas no terminal.
-    """
-    # Ler as primeiras linhas para identificar o cabeçalho
-    df_head = pd.read_csv(input_csv, nrows=10, encoding='utf-8')
-    original_cols = df_head.columns.tolist()
-
-    # Se o cabeçalho vier em minúsculas, renomear para a forma padrão
-    rename_map = {}
-    if "data" in original_cols:
-        rename_map["data"] = "Data"
-    if "categoria" in original_cols:
-        rename_map["categoria"] = "Categoria"
-    if "moeda" in original_cols:
-        rename_map["moeda"] = "Moeda"
-    if "quantidade" in original_cols:
-        rename_map["quantidade"] = "Quantidade"
-    if "saldo" in original_cols:
-        rename_map["saldo"] = "Saldo"
-
-    # Ler o CSV completo
-    df = pd.read_csv(input_csv, encoding='utf-8')
-    df.rename(columns=rename_map, inplace=True)
-
-    # Verificar colunas obrigatórias
-    required_cols = ["Data", "Categoria", "Moeda", "Quantidade", "Saldo"]
-    for col in required_cols:
-        if col not in df.columns:
-            raise ValueError(f"Coluna '{col}' não encontrada. Colunas lidas: {df.columns.tolist()}")
-
-    # Auto-detecção do formato de data
-    dt_fmt = auto_detect_format_for_series(df["Data"], sample_size=5)
-    if not dt_fmt:
-        dt_fmt = "%Y-%m-%d %H:%M:%S"  # fallback
-        print(f"[Aviso] Formato de data não detectado; usando fallback: {dt_fmt}")
-
-    # Converter a coluna "Data" para datetime
-    df["Data"] = pd.to_datetime(df["Data"], format=dt_fmt, errors="coerce")
-    invalid_dates = df["Data"].isna().sum()
-    if invalid_dates > 0:
-        print(f"[AVISO] {invalid_dates} linha(s) com data inválida foram removidas.")
-        df = df.dropna(subset=["Data"])
-
-    df.sort_values("Data", inplace=True)
-    df.reset_index(drop=True, inplace=True)
-
-    # Listar linhas com categorias não mapeadas para revisão
-    df_unknown = df[~df["Categoria"].isin(CATEGORIAS_MAPEADAS)]
-    if not df_unknown.empty:
-        print(f"[INFO] Linhas com categorias não mapeadas ({len(df_unknown)}):")
-        print(df_unknown[["Data", "Categoria", "Moeda", "Quantidade", "Saldo"]].to_string(index=False))
-
-    # Criar um dicionário para associar taxas de saque: chave = (Data, Moeda), valor = taxa acumulada
-    fee_map = {}
-    df_fee = df[df["Categoria"] == "Taxa de Saque/Retirada"].copy()
-    for idx, row in df_fee.iterrows():
-        tstamp = row["Data"]
-        coin = row["Moeda"]
-        fee_val = float(row["Quantidade"])
-        fee_map.setdefault((tstamp, coin), 0.0)
-        fee_map[(tstamp, coin)] += fee_val
-
-    koinly_rows = []
-
-    # Processar Depósitos: mapeia para Received
-    df_dep = df[df["Categoria"] == "Depósito"].copy()
-    for idx, row in df_dep.iterrows():
-        ts = row["Data"]
-        coin = row["Moeda"]
-        qty = abs(float(row["Quantidade"]))
-        date_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
-        rec = {
-            "Date": date_str,
-            "Sent Amount": "",
-            "Sent Currency": "",
-            "Received Amount": qty,
-            "Received Currency": coin,
-            "Fee Amount": "",
-            "Fee Currency": "",
-            "Net Worth Amount": "",
-            "Net Worth Currency": "",
-            "Label": "",
-            "Description": "Depósito - Mercado Bitcoin",
-            "TxHash": ""
-        }
-        koinly_rows.append(rec)
-
-    # Processar Saques/Retiradas: mapeia para Sent; associa taxa se encontrada
-    df_wd = df[df["Categoria"] == "Saque/Retirada"].copy()
-    for idx, row in df_wd.iterrows():
-        ts = row["Data"]
-        coin = row["Moeda"]
-        qty = abs(float(row["Quantidade"]))
-        date_str = ts.strftime("%Y-%m-%d %H:%M:%S UTC")
-        fee_val = ""
-        fee_currency = ""
-        # Procurar uma taxa associada: chave exata ou com diferença inferior a 2 segundos
-        for (t_fee, coin_fee), fee in fee_map.items():
-            if coin_fee == coin and abs((t_fee - ts).total_seconds()) < 2.0:
-                fee_val = fee
-                fee_currency = coin
-                break
-        wd_line = {
-            "Date": date_str,
-            "Sent Amount": qty,
-            "Sent Currency": coin,
-            "Received Amount": "",
-            "Received Currency": "",
-            "Fee Amount": fee_val,
-            "Fee Currency": fee_currency,
-            "Net Worth Amount": "",
-            "Net Worth Currency": "",
-            "Label": "",
-            "Description": "Saque/Retirada - Mercado Bitcoin",
-            "TxHash": ""
-        }
-        koinly_rows.append(wd_line)
-
-    # Processar Execução de ordem: agrupar pares (uma linha com quantidade < 0 e outra com > 0)
-    df_exec = df[df["Categoria"] == "Execução de ordem"].copy()
-    df_exec.reset_index(drop=True, inplace=True)
-    used_idx = set()
-    n = len(df_exec)
-    i = 0
-    while i < n:
-        if i in used_idx:
-            i += 1
-            continue
-        row1 = df_exec.iloc[i]
-        dt1 = row1["Data"]
-        coin1 = row1["Moeda"]
-        amt1 = float(row1["Quantidade"])
-        paired = False
-        for j in range(i + 1, n):
-            if j in used_idx:
-                continue
-            row2 = df_exec.iloc[j]
-            dt2 = row2["Data"]
-            coin2 = row2["Moeda"]
-            amt2 = float(row2["Quantidade"])
-            time_diff = abs((dt2 - dt1).total_seconds())
-            if time_diff < 2.0 and (amt1 * amt2 < 0):
-                date_str = min(dt1, dt2).strftime("%Y-%m-%d %H:%M:%S UTC")
-                if amt1 < 0:
-                    sent_coin, sent_amt = coin1, abs(amt1)
-                    rec_coin, rec_amt   = coin2, abs(amt2)
-                else:
-                    sent_coin, sent_amt = coin2, abs(amt2)
-                    rec_coin, rec_amt   = coin1, abs(amt1)
-                trade_line = {
-                    "Date": date_str,
-                    "Sent Amount": sent_amt,
-                    "Sent Currency": sent_coin,
-                    "Received Amount": rec_amt,
-                    "Received Currency": rec_coin,
-                    "Fee Amount": "",
-                    "Fee Currency": "",
-                    "Net Worth Amount": "",
-                    "Net Worth Currency": "",
-                    "Label": "",
-                    "Description": "Execução de ordem - Mercado Bitcoin",
-                    "TxHash": ""
-                }
-                koinly_rows.append(trade_line)
-                used_idx.add(i)
-                used_idx.add(j)
-                paired = True
-                break
-        i += 1
-
-    # Montar DataFrame final com o layout exigido pelo Koinly
-    df_koinly = pd.DataFrame(koinly_rows, columns=[
-        "Date",
-        "Sent Amount",
-        "Sent Currency",
-        "Received Amount",
-        "Received Currency",
-        "Fee Amount",
-        "Fee Currency",
-        "Net Worth Amount",
-        "Net Worth Currency",
-        "Label",
-        "Description",
-        "TxHash"
-    ])
-
-    df_koinly.to_csv(output_csv, index=False, quoting=csv.QUOTE_ALL)
-    print(f"Conversão finalizada! Foram geradas {len(df_koinly)} transações.")
-    print(f"Arquivo salvo: {output_csv}")
-
-if __name__ == "__main__":
-    input_file = "extrato_mercadobitcoin.csv"   # Substitua pelo nome do seu extrato
-    output_file = "koinly_output.csv"   # Nome do arquivo de saída
-    convert_mb_csv_to_sent_received(input_file, output_file)
-    print("Concluído.")
-
+**Esperamos que estes scripts facilitem sua apuração e a importação no Koinly.** Em caso de dúvidas, basta contatar os mantenedores ou abrir uma [Issue](https://github.com/seu-usuario/seu-repositorio/issues) no repositório. Boas conversões!
 ```
-
----
-
-### **4. Como Executar**
-
-No terminal ou prompt de comando, vá até a pasta onde o script está salvo e rode:
-
-```bash
-python mb_to_koinly.py
-```
-
-ou
-
-```bash
-python3 mb_to_koinly.py
-```
-
-Isso vai ler o arquivo chamado **`extrato_mercadobitcoin.csv`** (que deve estar na mesma pasta) e gerar um arquivo **`koinly_output.csv`** no mesmo diretório.
-
----
-
-### **5. Resultado**
-
-- O arquivo final (`koinly_output.csv`) terá **as 12 colunas** do “**Sent/Received CSV**” aceito pelo Koinly:
-
-  1. `Date`
-  2. `Sent Amount`
-  3. `Sent Currency`
-  4. `Received Amount`
-  5. `Received Currency`
-  6. `Fee Amount`
-  7. `Fee Currency`
-  8. `Net Worth Amount`
-  9. `Net Worth Currency`
-  10. `Label`
-  11. `Description`
-  12. `TxHash`
-
-- Cada transação é mapeada de acordo com a lógica:
-
-  - **Depósito** → recebe cripto/BRL (`Received Amount`).  
-  - **Saque/Retirada** → envia cripto/BRL (`Sent Amount`).  
-  - **Execução de ordem** → agrupa duas linhas (uma com quantidade < 0, outra > 0) e gera “Sent” vs. “Received”.
-
-- **Cancelamento de ordem**, **Criação de ordem** e outros eventos não entram no CSV final.
-
----
-
-## :wrench: **Personalização / Observações**
-
-- Caso haja **Taxa de Saque/Retirada** no extrato, você pode inserir uma lógica para mapear essa taxa em `Fee Amount` e `Fee Currency`.  
-- Se o arquivo tiver outro delimitador (por exemplo, `;`), troque `delimiter=','` para `delimiter=';'`.  
-- Se as datas vierem em outro formato (por ex., sem microssegundos), revise a lista `POSSIBLE_DATE_FORMATS`.  
-- Se desejar converter a data para outro fuso-horário ou exibir “(UTC)” no final, basta trocar o `strftime`.
-
----
-
-### ⚖️ **Licença e Créditos**
-
-Este script é fornecido “como está”. Sinta-se livre para adaptá-lo.  
-Em caso de dúvidas ou ajustes futuros, basta fazer [Issues](https://github.com/sua-conta/sua-repo/issues) no repositório ou entrar em contato.  
-
-**Bom uso e boa análise no Koinly!**
